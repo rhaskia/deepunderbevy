@@ -1,7 +1,11 @@
+mod input;
+mod modules;
 use std::f32::consts::PI;
-
+use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy::{prelude::*, input::mouse::MouseMotion};
 use bevy_rapier3d::prelude::*;
+use bevy::input::common_conditions::*;
+use input::{InputAxis, InputAxes};
 
 #[derive(Component)]
 struct SoundPlane(Vec<Vec<Vec<f64>>>);
@@ -24,6 +28,9 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, start)
+        .add_systems(Startup, cursor_grab)
+        .add_systems(Update, cursor_ungrab)
+        .add_systems(Update, cursor_grab.run_if(input_just_pressed(MouseButton::Left)))
         .add_systems(Update, update)
         .add_systems(Update, read_output)
         .add_systems(Update, player_movement)
@@ -39,19 +46,13 @@ fn start(
     let u = vec![vec![vec![0.0;80];80];2];
     commands.spawn(SoundPlane(u));
 
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Circle::new(4.0)),
-        material: materials.add(Color::WHITE),
-        transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-        ..default()
-    }).insert(Collider::cuboid(4.0, 4.0, 0.1));
 
     commands
         .spawn(RigidBody::KinematicPositionBased)
         .insert(Collider::capsule_y(1.0, 0.5))
         .insert(PbrBundle{
             mesh: meshes.add(Capsule3d::new(0.5, 2.0)),
-            material: materials.add(Color::rgb_linear(1.0, 0.0, 0.0)),
+            material: materials.add(Color::srgb_from_array([1.0, 0.0, 0.0])),
             transform: Transform::from_xyz(1.0, 3.0, 1.0),
             ..default()
         })
@@ -59,13 +60,14 @@ fn start(
             snap_to_ground: Some(CharacterLength::Absolute(2.0)),
             ..KinematicCharacterController::default()
         })
-        .insert(GravityScale(1.0))
         .insert(Player {
             acceleration: 0.8,
             max_speed: 5.0,
             velocity: Vec3::new(0.0, 0.0, 0.0),
             ..default()
         });
+
+    modules::spawn_module(&mut commands, &mut meshes, &mut materials);
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -81,7 +83,28 @@ fn start(
         transform: Transform::from_rotation(Quat::from_rotation_y(PI)),
         ..default()
     });
+    
+    commands.insert_resource(InputAxes::default());
+}
 
+
+fn cursor_grab(
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    let mut primary_window = q_windows.single_mut();
+    primary_window.cursor.grab_mode = CursorGrabMode::Locked;
+    primary_window.cursor.visible = false;
+}
+
+fn cursor_ungrab(
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    if keyboard_input.pressed(KeyCode::Escape) {
+        let mut primary_window = q_windows.single_mut();
+        primary_window.cursor.grab_mode = CursorGrabMode::None;
+        primary_window.cursor.visible = true;
+    } 
 }
 
 fn update(
@@ -109,30 +132,40 @@ fn camera_movement(
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
     mut player_query: Query<(&mut Transform, &Player), Without<Camera3d>>,
     mut mouse_motion: EventReader<MouseMotion>,
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
+    let primary_window = q_windows.single_mut();
+
     let mut camera = camera_query.single_mut();
     let mut player = player_query.single_mut().0;
+
+    camera.translation = player.translation + Vec3::new(0.0, 1.0, 0.0);
+
+    // Only rotate the camera when cursor is grabbed
+    if primary_window.cursor.grab_mode == CursorGrabMode::None { return }
+
     for motion in mouse_motion.read() {
         let yaw = -motion.delta.x * 0.003;
         let pitch = -motion.delta.y * 0.002;
         // Order of rotations is important, see <https://gamedev.stackexchange.com/a/136175/103059>
         player.rotate_y(yaw);
+        camera.rotate_y(yaw);
         camera.rotate_local_x(pitch);
     }
-
 }
 
 fn player_movement(
-    mut query: Query<(&mut KinematicCharacterController, &mut Player)>,
+    mut query: Query<(&mut KinematicCharacterController, &mut Player, &Transform)>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    axes: Res<InputAxes>,
     time: Res<Time>,
 ) {
-    let (mut controller, mut player) = query.single_mut();
+    let (mut controller, mut player, transform) = query.single_mut();
 
-    let horiz = get_key_axis(&keyboard_input, KeyCode::ArrowLeft, KeyCode::ArrowRight);
-    let vert = get_key_axis(&keyboard_input, KeyCode::ArrowDown, KeyCode::ArrowUp);
-    let new_velocity = Vec3::new(horiz, 0.0, vert).normalize_or_zero() * player.max_speed;
-    println!("{:?}", Vec3::new(horiz, 0.0, vert).normalize_or_zero());
+    let horiz = get_key_axis(&keyboard_input, axes.get("Horizontal"));
+    let forward = get_key_axis(&keyboard_input, axes.get("Vertical"));
+    let move_vector = forward * transform.forward() + horiz * transform.left();
+    let new_velocity = move_vector.normalize_or_zero() * player.max_speed;
     // TODO seperate accel and decel
     player.velocity = player.velocity.move_towards(new_velocity, player.acceleration);
 
@@ -145,8 +178,10 @@ fn player_movement(
     controller.translation = Some(Vec3::new(player.velocity.x, player.vertical_velocity, player.velocity.z) * time.delta_seconds());
 }
 
-fn get_key_axis(input: &Res<ButtonInput<KeyCode>>, neg: KeyCode, pos: KeyCode) -> f32 {
-    (input.pressed(pos) as i32 as f32) - (input.pressed(neg) as i32 as f32)
+fn get_key_axis(input: &Res<ButtonInput<KeyCode>>, axis: &InputAxis) -> f32 {
+    let pos = axis.pos.iter().map(|key| input.pressed(*key)).any(|p| p);
+    let neg = axis.neg.iter().map(|key| input.pressed(*key)).any(|p| p);
+    (neg as i32 as f32) - (pos as i32 as f32)
 }
 
 fn draw_screen(u: &Vec<Vec<f64>>) -> String {

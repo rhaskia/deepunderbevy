@@ -1,17 +1,21 @@
 mod input;
 mod modules;
 use std::f32::consts::PI;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::render_resource::{TextureFormat, TextureDimension, Extent3d, TextureId};
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy::{prelude::*, input::mouse::MouseMotion};
+use bevy_rapier3d::na::UnitVector3;
 use bevy_rapier3d::prelude::*;
+use bevy_lunex::prelude::*;
 use bevy::input::common_conditions::*;
 use input::{InputAxis, InputAxes};
 
 #[derive(Component)]
-struct SoundPlane(Vec<Vec<Vec<f64>>>);
+struct SoundPlane(Vec<Vec<Vec<f32>>>);
 
 #[derive(Component)]
-struct SoundImage;
+struct SoundImage(Handle<Image>);
 
 #[derive(Component, Default)]
 struct Player {
@@ -22,13 +26,17 @@ struct Player {
     grounded: bool,
 }
 
+#[derive(Component)]
+struct SoundView;
+
 fn main() {
     App::new() 
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, UiPlugin))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, start)
         .add_systems(Startup, cursor_grab)
+        .add_systems(Startup, spawn_ui)
         .add_systems(Update, cursor_ungrab)
         .add_systems(Update, cursor_grab.run_if(input_just_pressed(MouseButton::Left)))
         .add_systems(Update, update)
@@ -41,11 +49,12 @@ fn main() {
 fn start(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let u = vec![vec![vec![0.0;80];80];2];
+    let mut u = vec![vec![vec![0.0;80];80];2];
+    u[1][40][40] = 1.0;
     commands.spawn(SoundPlane(u));
-
 
     commands
         .spawn(RigidBody::KinematicPositionBased)
@@ -69,55 +78,92 @@ fn start(
 
     modules::spawn_module(&mut commands, &mut meshes, &mut materials);
 
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
-            shadows_enabled: true,
-            ..default()
-        },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
-    });
-
     // camera
     commands.spawn(Camera3dBundle {
         transform: Transform::from_rotation(Quat::from_rotation_y(PI)),
         ..default()
     });
+
+    let texture = Image::new(
+        Extent3d { width: 80, height: 80, ..default() },
+        TextureDimension::D2,
+        vec![0xFF; 80 * 80 * 4],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD
+    );
+
+    let texture_handle = images.add(texture);
+
+    commands.spawn(SoundImage(texture_handle.clone()));
+
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Plane3d::new(Vec3::new(0.0, 0.0, 1.0), Vec2::new(1.0, 1.0))),
+            material: materials.add(
+                StandardMaterial {
+                    base_color_texture: Some(texture_handle),
+                    ..default()
+                }
+                ),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+            ..default()
+        },
+        SoundView
+    ));
     
     commands.insert_resource(InputAxes::default());
 }
 
 
 fn cursor_grab(
-    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut q_cursor: Query<&mut Cursor2d>,
 ) {
-    let mut primary_window = q_windows.single_mut();
-    primary_window.cursor.grab_mode = CursorGrabMode::Locked;
-    primary_window.cursor.visible = false;
+    if let Ok(mut cursor) = q_cursor.get_single_mut() {
+        cursor.confined = true;
+        cursor.visible = true;
+    }
 }
 
 fn cursor_ungrab(
-    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut q_cursor: Query<&mut Cursor2d>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if keyboard_input.pressed(KeyCode::Escape) {
-        let mut primary_window = q_windows.single_mut();
-        primary_window.cursor.grab_mode = CursorGrabMode::None;
-        primary_window.cursor.visible = true;
-    } 
+    if let Ok(mut cursor) = q_cursor.get_single_mut() {
+        if keyboard_input.pressed(KeyCode::Escape) {
+            cursor.confined = false;
+            cursor.visible = true;
+        } 
+    }
 }
 
 fn update(
     mut soundplane: Query<&mut SoundPlane>,
-    mut assets: Res<AssetServer>,
-    mut query: Query<&mut Handle<Image>, With<SoundImage>>,
+    mut query: Query<&mut SoundImage>,
+    mut images: ResMut<Assets<Image>>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
 ) {
-    // let mut u = soundplane.get_single_mut().unwrap();
-    // let next = calculate_next_step(&u.0, 1.0, 0.125, 0.125, 0.025, 0.01);
-    // u.0.push(next);
+    let mut u = soundplane.get_single_mut().unwrap();
+    u.0[1][40][40] = (time.elapsed().as_secs() as f32).sin();
+    let next = calculate_next_step(&u.0, 1.0, 0.125, 0.125, 0.025, 0.005);
+    u.0[0] = u.0[1].clone();
+    u.0[1] = next;
+    
+    let handle = &mut query.single_mut().0;
+    let texture = images.get_mut(handle).unwrap();
+    for x in 0..80 {
+        for y in 0..80 {
+            let value = (u.0[u.0.len() - 1][x][y] * 128.0 + 127.0) as u8;
+            texture.data[(x * 80 + y) * 4] = value;
+            texture.data[(x * 80 + y) * 4 + 1] = (time.elapsed().as_secs() * 10) as u8;
+            texture.data[(x * 80 + y) * 4 + 2] = 254;
+        }
+    }
 
 
-    //print!("{}", draw_screen(&u.0[t]));
+    // let ui = ui.single_mut();
+    // materials.get(ui.material).unwrap().base_color_texture = Some(handle.clone());
 
     // std::thread::sleep(std::time::Duration::from_millis(30));
 }
@@ -142,7 +188,7 @@ fn camera_movement(
     camera.translation = player.translation + Vec3::new(0.0, 1.0, 0.0);
 
     // Only rotate the camera when cursor is grabbed
-    if primary_window.cursor.grab_mode == CursorGrabMode::None { return }
+    //;if primary_window.cursor.grab_mode == CursorGrabMode::None { return }
 
     for motion in mouse_motion.read() {
         let yaw = -motion.delta.x * 0.003;
@@ -184,27 +230,27 @@ fn get_key_axis(input: &Res<ButtonInput<KeyCode>>, axis: &InputAxis) -> f32 {
     (neg as i32 as f32) - (pos as i32 as f32)
 }
 
-fn draw_screen(u: &Vec<Vec<f64>>) -> String {
+fn draw_screen(u: &Vec<Vec<f32>>) -> String {
     let mut string = String::new();
     string.push_str("\x1b[H");
     for y in 0..40 {
         for x in 0..80 {
             string.push_str(&format!("\x1b[38;2;{0};{0};{0}\x1b[48;2;{1};{1};{1}m ", 
-                (u[x][y*2] * 200.0 + 126.0) as i64,
-                (u[x][y*2 + 1] * 200.0 + 126.0) as i64));
+                (u[x][y*2] * 200.0 + 126.0) as i16,
+                (u[x][y*2 + 1] * 200.0 + 126.0) as i16));
         }
         string.push_str("\n");
     }
     string
 }
 
-fn calculate_next_step(u: &Vec<Vec<Vec<f64>>>, c: f64, dx: f64, dy: f64, dt: f64, f: f64) -> Vec<Vec<f64>> {
+fn calculate_next_step(u: &Vec<Vec<Vec<f32>>>, c: f32, dx: f32, dy: f32, dt: f32, f: f32) -> Vec<Vec<f32>> {
     let n = 80;
     let mut new_state = vec![vec![0.0; n]; n];
     let t = u.len() - 1;
 
-    let cfl_condition = c * dt <= f64::sqrt(dx * dx + dy * dy);
-    assert!(cfl_condition, "CFL condition violated");
+    // let cfl_condition = c * dt <= f32::sqrt(dx * dx + dy * dy);
+    // assert!(cfl_condition, "CFL condition violated");
 
     for x in 1..n - 1 {
         for y in 1..n-1 {
@@ -221,10 +267,55 @@ fn calculate_next_step(u: &Vec<Vec<Vec<f64>>>, c: f64, dx: f64, dy: f64, dt: f64
     new_state
 }
 
-fn draw_rect(u: &mut Vec<Vec<f64>>, sx: usize, sy: usize, ex: usize, ey: usize) {
+fn draw_rect(u: &mut Vec<Vec<f32>>, sx: usize, sy: usize, ex: usize, ey: usize) {
     for x in sx..ex {
         for y in sy..ey {
             u[x][y] /= 2.0;
         }
     }
+}
+
+fn spawn_ui(
+    mut commands: Commands,
+    mut material: ResMut<Assets<StandardMaterial>>,
+    assets: Res<AssetServer>,
+) {
+    // Spawn cursor
+    commands.spawn(CursorBundle::default());
+
+
+    // Spawn the floating Ui panel
+    commands.spawn((
+        UiTreeBundle::<MainUi> {
+            transform: Transform::from_xyz(0.4, 0.3, 0.3),
+            tree: UiTree::new3d("PanelWidget"),
+            ..default()
+        },
+    )).with_children(|ui| {
+        ui.spawn((
+            // Link this widget
+            UiLink::<MainUi>::path("Menu/Button"),
+
+            // The layout that is used when in base state
+            UiLayout::window_full().size((818.0, 965.0)).pack::<Base>(),
+
+            // // Give the mesh an image
+            // UiMaterial3dBundle::from_transparent_image(&mut material, texture_handle),
+            UiColor::<Base>::new(Color::srgb_from_array([1.0, 0.0, 0.0])),
+            UiColor::<Hover>::new(Color::srgb_from_array([1.0, 1.0, 0.0])),
+
+            // Make the panel pickable
+            PickableBundle::default(),
+
+            // This is required to control our hover animation
+            UiAnimator::<Hover>::new().forward_speed(6.0).backward_speed(5.0),
+
+            // This is required for Layout animation
+            UiLayoutController::default(),
+
+            // The layout that is used when in hover state
+            UiLayout::window_full().x(100.0).size((818.0, 965.0)).pack::<Hover>(),
+            UiClickEmitter::SELF,
+        ));
+    }); 
 }

@@ -29,6 +29,9 @@ struct Player {
 #[derive(Component)]
 struct SoundView;
 
+#[derive(Component)]
+struct SoundMat(Handle<StandardMaterial>);
+
 fn main() {
     App::new() 
         .add_plugins((DefaultPlugins, UiPlugin))
@@ -95,16 +98,18 @@ fn start(
     let texture_handle = images.add(texture);
 
     commands.spawn(SoundImage(texture_handle.clone()));
+    let mat = materials.add(
+        StandardMaterial {
+            base_color_texture: Some(texture_handle),
+            ..default()
+        }
+    );
+    commands.spawn(SoundMat(mat.clone()));
 
     commands.spawn((
         PbrBundle {
             mesh: meshes.add(Plane3d::new(Vec3::new(0.0, 0.0, 1.0), Vec2::new(1.0, 1.0))),
-            material: materials.add(
-                StandardMaterial {
-                    base_color_texture: Some(texture_handle),
-                    ..default()
-                }
-                ),
+            material: mat,
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
             ..default()
         },
@@ -139,6 +144,7 @@ fn cursor_ungrab(
 fn update(
     mut soundplane: Query<&mut SoundPlane>,
     mut query: Query<&mut SoundImage>,
+    mut q_mat: Query<&mut SoundMat>,
     mut images: ResMut<Assets<Image>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -151,19 +157,19 @@ fn update(
     u.0[1] = next;
     
     let handle = &mut query.single_mut().0;
-    let texture = images.get_mut(handle).unwrap();
+    let texture = images.get_mut(&handle.clone()).unwrap();
     for x in 0..80 {
         for y in 0..80 {
             let value = (u.0[u.0.len() - 1][x][y] * 128.0 + 127.0) as u8;
             texture.data[(x * 80 + y) * 4] = value;
-            texture.data[(x * 80 + y) * 4 + 1] = (time.elapsed().as_secs() * 10) as u8;
-            texture.data[(x * 80 + y) * 4 + 2] = 254;
+            texture.data[(x * 80 + y) * 4 + 1] = value;
+            texture.data[(x * 80 + y) * 4 + 2] = value;
         }
     }
+    let mut mat = q_mat.get_single_mut().unwrap();
 
-
-    // let ui = ui.single_mut();
-    // materials.get(ui.material).unwrap().base_color_texture = Some(handle.clone());
+    // materials.get_mut(&mut mat.0).unwrap().base_color = Color::srgb_from_array([time.elapsed().as_secs() as f32 / 10.0, 0.0, 0.0]);
+    materials.get_mut(&mut mat.0).unwrap().base_color_texture = Some(handle.clone());
 
     // std::thread::sleep(std::time::Duration::from_millis(30));
 }

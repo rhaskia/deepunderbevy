@@ -36,7 +36,7 @@ fn main() {
     App::new() 
         .add_plugins((DefaultPlugins, UiPlugin))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugins(RapierDebugRenderPlugin::default())
+        // .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, start)
         .add_systems(Startup, cursor_grab)
         .add_systems(Startup, spawn_ui)
@@ -100,7 +100,9 @@ fn start(
     commands.spawn(SoundImage(texture_handle.clone()));
     let mat = materials.add(
         StandardMaterial {
-            base_color_texture: Some(texture_handle),
+            base_color_texture: Some(texture_handle.clone()),
+            emissive_texture: Some(texture_handle),
+            emissive: Color::srgb(1.0, 1.0, 1.0).into(),
             ..default()
         }
     );
@@ -110,7 +112,7 @@ fn start(
         PbrBundle {
             mesh: meshes.add(Plane3d::new(Vec3::new(0.0, 0.0, 1.0), Vec2::new(1.0, 1.0))),
             material: mat,
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, -3.0)),
             ..default()
         },
         SoundView
@@ -151,8 +153,8 @@ fn update(
     time: Res<Time>,
 ) {
     let mut u = soundplane.get_single_mut().unwrap();
-    u.0[1][40][40] = (time.elapsed().as_secs() as f32).sin();
-    let next = calculate_next_step(&u.0, 1.0, 0.125, 0.125, 0.025, 0.005);
+    u.0[1][40][40] = (time.elapsed().as_secs_f32() * 5.0).sin();
+    let next = calculate_next_step(&u.0, 1.0, 0.2, 0.2, 0.025, 0.0);
     u.0[0] = u.0[1].clone();
     u.0[1] = next;
     
@@ -160,16 +162,18 @@ fn update(
     let texture = images.get_mut(&handle.clone()).unwrap();
     for x in 0..80 {
         for y in 0..80 {
-            let value = (u.0[u.0.len() - 1][x][y] * 128.0 + 127.0) as u8;
-            texture.data[(x * 80 + y) * 4] = value;
+            let value = (u.0[u.0.len() - 1][x][y] * 255.0) as u8;
+            let blue = (u.0[u.0.len() - 1][x][y] * -255.0) as u8;
+            texture.data[(x * 80 + y) * 4] = blue;
             texture.data[(x * 80 + y) * 4 + 1] = value;
-            texture.data[(x * 80 + y) * 4 + 2] = value;
+            texture.data[(x * 80 + y) * 4 + 2] = 0;
         }
     }
     let mut mat = q_mat.get_single_mut().unwrap();
 
     // materials.get_mut(&mut mat.0).unwrap().base_color = Color::srgb_from_array([time.elapsed().as_secs() as f32 / 10.0, 0.0, 0.0]);
     materials.get_mut(&mut mat.0).unwrap().base_color_texture = Some(handle.clone());
+    materials.get_mut(&mut mat.0).unwrap().emissive_texture = Some(handle.clone());
 
     // std::thread::sleep(std::time::Duration::from_millis(30));
 }
@@ -273,10 +277,10 @@ fn calculate_next_step(u: &Vec<Vec<Vec<f32>>>, c: f32, dx: f32, dy: f32, dt: f32
     new_state
 }
 
-fn draw_rect(u: &mut Vec<Vec<f32>>, sx: usize, sy: usize, ex: usize, ey: usize) {
+fn draw_rect(u: &mut Vec<Vec<f32>>, value: f32, sx: usize, sy: usize, ex: usize, ey: usize) {
     for x in sx..ex {
         for y in sy..ey {
-            u[x][y] /= 2.0;
+            u[x][y] = value;
         }
     }
 }

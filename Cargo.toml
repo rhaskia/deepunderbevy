@@ -4,8 +4,26 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = "0.14.1"
-bevy_ratatui = "0.6.2"
-color-eyre = "0.6.3"
-ratatui = "0.28.1"
 crossterm = "0.28.1"
+
+[dependencies.bevy]
+version = "0.14"
+default-features = false
+features = [
+    "bevy_asset",
+    "bevy_color",
+    "bevy_scene",
+    "bevy_state",
+    "multi_threaded",
+    "asset_processor",           # Asset processing
+    "serialize",                 # Support for `serde` Serialize/Deserialize
+    "async-io",                  # Make bevy use `async-io` instead of `futures-lite`
+
+    "trace",              # Enable tracing for performance measurement
+    "detailed_trace",     # Make traces more verbose
+    "trace_tracy",        # Tracing using `tracy`
+    "trace_tracy_memory", # + memory profiling
+    "trace_chrome",       # Tracing using the Chrome format
+    "debug_glam_assert",  # Assertions to validate math (glam) usage
+    "embedded_watcher",   # Hot-reloading for Bevy's internal/builtin ass
+]

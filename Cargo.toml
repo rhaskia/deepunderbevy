@@ -19,11 +19,6 @@ features = [
     "serialize",                 # Support for `serde` Serialize/Deserialize
     "async-io",                  # Make bevy use `async-io` instead of `futures-lite`
 
-    "trace",              # Enable tracing for performance measurement
-    "detailed_trace",     # Make traces more verbose
-    "trace_tracy",        # Tracing using `tracy`
-    "trace_tracy_memory", # + memory profiling
-    "trace_chrome",       # Tracing using the Chrome format
     "debug_glam_assert",  # Assertions to validate math (glam) usage
     "embedded_watcher",   # Hot-reloading for Bevy's internal/builtin ass
 ]

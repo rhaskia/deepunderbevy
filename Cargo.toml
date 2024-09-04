@@ -5,20 +5,3 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.28.1"
-
-[dependencies.bevy]
-version = "0.14"
-default-features = false
-features = [
-    "bevy_asset",
-    "bevy_color",
-    "bevy_scene",
-    "bevy_state",
-    "multi_threaded",
-    "asset_processor",           # Asset processing
-    "serialize",                 # Support for `serde` Serialize/Deserialize
-    "async-io",                  # Make bevy use `async-io` instead of `futures-lite`
-
-    "debug_glam_assert",  # Assertions to validate math (glam) usage
-    "embedded_watcher",   # Hot-reloading for Bevy's internal/builtin ass
-]

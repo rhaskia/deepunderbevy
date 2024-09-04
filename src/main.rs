@@ -4,16 +4,12 @@ use crossterm::event::KeyCode;
 use crossterm::event::{self, poll, Event, KeyEventKind};
 
 fn main() {
-    let mut u = vec![vec![vec![0.0; 80]; 80]; 2];
+    let mut u = vec![vec![vec![0.0; 320]; 320]; 2];
     let mut t: f32 = 0.0;
-    u[0][40][40] = 0.0;
-    u[1][40][40] = 0.1_f32.sin();
 
     loop {
         t += 0.1;
-        if t < 2.9 {
-            u[1][70][40] = t.sin() * 5.0;
-        }
+        if t < 6.14 { u[1][50][40] = t.sin() * 5.0 };
         let next = calculate_next_step(&u, 1.0, 0.1, 0.1, 0.02, 0.0);
         u[0] = u[1].clone();
         u[1] = next;
@@ -73,10 +69,35 @@ fn calculate_next_step(
         }
     }
 
+    let dtdy = dt / dy;
+    let dtdx = dt / dx;
+
     for y in 1..n-1 {
-        let x = 79;
-        let dudx = (c * (dt / dy)) * ((u[t][x][y]) - u[t][x - 1][y]);
-        new_state[x][y] = u[t][x][y] - dudx;
+        for x in n-10..n {
+            let dudx = (c * (dt / dy)) * ((u[t][x][y]) - u[t][x - 1][y]);
+            new_state[x][y] = u[t][x][y] - dudx;
+        }
+    }
+
+    for y in 1..n-1 {
+        for x in 0..10 {
+            let dudx = (c * (dt / dy)) * ((u[t][x][y]) - u[t][x + 1][y]);
+            new_state[x][y] = u[t][x][y] - dudx;
+        }
+    }
+
+    for x in 1..n-1 {
+        for y in 70..n {
+            let dudy = u[t][x][y] - u[t][x][y - 1];
+            new_state[x][y] = u[t][x][y] - (c * dtdy * dudy);
+        }
+    }
+
+    for x in 1..n-1 {
+        for y in 0..10 {
+            let dudy = u[t][x][y] - u[t][x][y + 1];
+            new_state[x][y] = u[t][x][y] - (c * dtdy * dudy);
+        }
     }
 
     new_state

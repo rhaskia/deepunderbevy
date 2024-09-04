@@ -76,7 +76,7 @@ fn calculate_next_step(
     for y in 1..n-1 {
         let x = 79;
         let dudx = (c * (dt / dy)) * ((u[t][x][y]) - u[t][x - 1][y]);
-        new_state[x][y] = u[t][x-1][y] - dudx;
+        new_state[x][y] = u[t][x][y] - dudx;
     }
 
     new_state

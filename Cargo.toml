@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 crossterm = "0.28.1"
 macroquad = "0.4.13"
+noise = "0.9.0"
+rand = "0.8.5"

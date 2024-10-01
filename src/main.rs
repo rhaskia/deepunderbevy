@@ -1,8 +1,13 @@
 mod skinbuilder;
+
 use skinbuilder::build_skin;
+use noise::{
+    core::perlin::{perlin_2d, perlin_3d, perlin_4d},
+    permutationtable::PermutationTable,
+    utils::*,
+};
 
 use macroquad::{
-    miniquad::TextureParams,
     prelude::*,
     ui::{hash, root_ui, widgets::Group},
 };
@@ -14,6 +19,15 @@ struct Speaker {
     is_dragging: bool,
     volume: f32,
     offset: f32,
+    speed: f32,
+}
+
+struct Block {
+    position: Vec2,
+    icon_pos: Vec2,
+    grab_offset: Vec2,
+    size: Vec2,
+    is_dragging: bool,
     speed: f32,
 }
 
@@ -36,12 +50,28 @@ async fn main() {
     let mut x: f32 = 160.0;
     let mut y: f32 = 160.0;
     let mut u = vec![vec![vec![0.0; x as usize]; y as usize]; 2];
+
+    let hasher = PermutationTable::new(0);
+    let perlin = PlaneMapBuilder::new_fn(|point| perlin_2d(point.into(), &hasher))
+            .set_size(x as usize, y as usize)
+            .set_x_bounds(-10.0, 10.0)
+            .set_y_bounds(-10.0, 10.0)
+            .build();
+
+    for x in 0..x as usize {
+        for y in 0..y as usize {
+            u[0][x][y] = perlin.get_value(x, y) as f32;
+            u[1][x][y] = perlin.get_value(x, y) as f32;
+        }
+    }
+
     let mut t: f32 = 0.0;
     let mut params = DrawTextureParams::default();
     let mut wave_speed = 1.0;
     let mut friction = 0.0f32;
     let mut resolution = 1.0;
     let mut speakers = vec![Speaker::new(vec2(50., 50.)), Speaker::new(vec2(100., 100.0))];
+    //let mut blocks = vec![];
     let skin = build_skin().await;
 
     root_ui().push_skin(&skin);
@@ -57,6 +87,13 @@ async fn main() {
             let x = ((speaker.position.x + 10.0) / screen_height() * x) as usize;
             u[1][y][x] = (t * speaker.speed + speaker.offset).sin() * 5.0 * speaker.volume;
         }
+
+        // for block in &blocks {
+        //     draw_rect_sim(&mut u[0], 0.0, block.position, sy, ex, ey)
+        // }
+
+        draw_double_slit(&mut u[0]);
+        draw_double_slit(&mut u[1]);
 
         let next = calculate_next_step(
             &u,
@@ -103,6 +140,15 @@ async fn main() {
                     speakers.clear();
                 }
 
+                // if ui.button(None, "Add Block") {
+                //     blocks.push(Block::new(vec2(100.0, 100.0), vec2(20.0, 20.0)));
+                // }
+                //ui.same_line(0.0);
+
+                // if ui.button(None, "Remove All") {
+                //     speakers.clear();
+                // }
+
                 for (n, speaker) in speakers.iter_mut().enumerate() {
                     ui.group(hash!("speakergroup", n), vec2(200.0, 70.0), |ui| {
                         ui.slider(
@@ -118,9 +164,19 @@ async fn main() {
                             &mut speaker.offset,
                         );
                         ui.slider(hash!("speakerspeed", n), "Speed", 0.0..5.0, &mut speaker.speed);
-                        //ui.label(None, "hello");
                     });
                 }
+
+                // for (n, block) in blocks.iter_mut().enumerate() {
+                //     ui.group(hash!("blockgroup", n), vec2(200.0, 70.0), |ui| {
+                //         ui.slider(
+                //             hash!("blockspeed", n),
+                //             "Wave Speed",
+                //             0.0..5.0,
+                //             &mut speaker.speed,
+                //         );
+                //     });
+                // }
             },
         );
 
@@ -153,6 +209,14 @@ async fn main() {
     }
 }
 
+fn draw_double_slit(u: &mut Vec<Vec<f32>>) {
+    let height = u.len();
+    let width = u[0].len();
+    draw_rect_sim(u, 0.0, 0, height/2, width / 3, height/2 + 5);
+    draw_rect_sim(u, 0.0, (width / 3) * 2, height/2, width, height/2 + 5);
+    draw_rect_sim(u, 0.0, (width / 10) * 4, height/2, (width / 10) * 6, height/2 + 5);
+} 
+
 fn calculate_next_step(
     u: &Vec<Vec<Vec<f32>>>,
     c: f32,
@@ -170,7 +234,7 @@ fn calculate_next_step(
         for y in 1..y_len - 1 {
             let dudx = (u[t][x + 1][y] - 2.0 * u[t][x][y] + u[t][x - 1][y]) / (dx * dx);
             let dudy = (u[t][x][y + 1] - 2.0 * u[t][x][y] + u[t][x][y - 1]) / (dy * dy);
-            let mut friction = f * (u[t][x][y] - u[t - 1][x][y]);
+            let friction = f * (u[t][x][y] - u[t - 1][x][y]);
 
             new_state[x][y] = ((c * c) * (dt * dt) * (dudy + dudx)) + (2.0 * u[t][x][y])
                 - u[t - 1][x][y]
@@ -216,7 +280,7 @@ fn calculate_next_step(
 fn draw_rect_sim(u: &mut Vec<Vec<f32>>, value: f32, sx: usize, sy: usize, ex: usize, ey: usize) {
     for x in sx..ex {
         for y in sy..ey {
-            u[x][y] = value;
+            u[y][x] = value;
         }
     }
 }
